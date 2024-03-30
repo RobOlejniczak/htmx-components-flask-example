@@ -1,0 +1,673 @@
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/htmx_components_flask/__init__.py'
+"
+import werkzeug
+from flask import Blueprint, request
+from lxml import etree, html
+
+htmx_components_flask = Blueprint(
+    "htmx_components_flask", __name__, template_folder="templates"
+)
+
+@htmx_components_flask.app_context_processor
+def jinja_globals():
+    return dict(int=int)
+
+
+@htmx_components_flask.app_template_filter("url_encode")
+def url_encode(s: str) -> str:
+    # return werkzeug.urls.url_encode(s)
+    return werkzeug.urls.url_encode({"s": s})
+
+@htmx_components_flask.app_template_filter("partition")
+def partition(value: str, missing: str, sep: str = ",") -> tuple[str, str]:
+    a, _, b = str(value).partition(sep)
+    return (a or missing, b or missing)
+
+
+parser = etree.HTMLParser(encoding="utf-8")
+
+
+@htmx_components_flask.after_app_request
+def after_app_request(response):
+    if "HX-Request" in request.headers:
+        data = response.get_data()
+        tree = html.fromstring(data, parser=parser)
+        target = request.headers["HX-Target"]
+        target_elem = tree.xpath(f"//*[@id='{target}']")[0]
+        oob_elems = tree.xpath("//*[@hx-swap-oob]")
+        elems = [target_elem] + oob_elems
+        response.data = "".join([html.tostring(elem, encoding=str) for elem in elems])
+
+    return response
+"
+
+
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/htmx_components_python/__init__.py'
+"
+from __future__ import annotations
+
+import typing as t
+from abc import abstractstaticmethod
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+@dataclass
+class TreeConfig:
+    data: t.Callable | list
+    lazy: bool = False
+    prefix: str = ""
+    key_attr: str = "id"
+    text_attr: str = "name"
+    parent_id_attr: str = "parent_id"
+    render_node: t.Callable[[t.Mapping], str] = lambda item: item["name"]
+    htmx_endpoint: str = ""
+    search: bool = True
+    toggle_all: bool = True
+    expand_icon: str = "bi-caret-right-fill text-secondary"
+    collapse_icon: str = "bi-caret-down-fill text-secondary"
+
+    def __post_init__(self):
+        if self.prefix and not self.prefix.endswith("-"):
+            self.prefix = f"{self.prefix}-"
+
+
+@dataclass
+class Column:
+    attr: str
+    text: str = ""
+    render: t.Callable = str
+
+    def __post_init__(self):
+        if not self.text:
+            self.text = self.attr
+
+
+@dataclass
+class GridConfig:
+    prefix: str = ""
+    columns: t.Iterable[Column | str] = field(default_factory=list)
+    table_cls = ""
+
+    def __post_init__(self):
+        if self.prefix:
+            self.prefix = f"{self.prefix}-"
+
+        self.columns = list(
+            map(lambda col: Column(col) if isinstance(col, str) else col, self.columns)
+        )
+
+    @abstractstaticmethod
+    def get_records(
+        page: int = 1,
+        page_size: int = 20,
+        sorts=list[tuple[str, str]],
+        q: str = "",
+    ) -> tuple[t.Iterable[t.Any], int]:
+        ...
+
+
+class SelectionMode(Enum):
+    NONE = 0
+    SINGLE = 1
+    MULTI = 2
+"
+
+
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/werkzeug/urls.py'
+"
+from __future__ import annotations
+
+import codecs
+import re
+import typing as t
+from urllib.parse import quote
+from urllib.parse import unquote
+from urllib.parse import urlencode
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
+
+from .datastructures import iter_multi_items
+
+
+def _codec_error_url_quote(e: UnicodeError) -> tuple[str, int]:
+    """Used in :func:`uri_to_iri` after unquoting to re-quote any
+    invalid bytes.
+    """
+    # the docs state that UnicodeError does have these attributes,
+    # but mypy isn't picking them up
+    out = quote(e.object[e.start : e.end], safe="")  # type: ignore
+    return out, e.end  # type: ignore
+
+
+codecs.register_error("werkzeug.url_quote", _codec_error_url_quote)
+
+
+def _make_unquote_part(name: str, chars: str) -> t.Callable[[str], str]:
+    """Create a function that unquotes all percent encoded characters except those
+    given. This allows working with unquoted characters if possible while not changing
+    the meaning of a given part of a URL.
+    """
+    choices = "|".join(f"{ord(c):02X}" for c in sorted(chars))
+    pattern = re.compile(f"((?:%(?:{choices}))+)", re.I)
+
+    def _unquote_partial(value: str) -> str:
+        parts = iter(pattern.split(value))
+        out = []
+
+        for part in parts:
+            out.append(unquote(part, "utf-8", "werkzeug.url_quote"))
+            out.append(next(parts, ""))
+
+        return "".join(out)
+
+    _unquote_partial.__name__ = f"_unquote_{name}"
+    return _unquote_partial
+
+
+# characters that should remain quoted in URL parts
+# based on https://url.spec.whatwg.org/#percent-encoded-bytes
+# always keep all controls, space, and % quoted
+_always_unsafe = bytes((*range(0x21), 0x25, 0x7F)).decode()
+_unquote_fragment = _make_unquote_part("fragment", _always_unsafe)
+_unquote_query = _make_unquote_part("query", _always_unsafe + "&=+#")
+_unquote_path = _make_unquote_part("path", _always_unsafe + "/?#")
+_unquote_user = _make_unquote_part("user", _always_unsafe + ":@/?#")
+
+
+def uri_to_iri(uri: str) -> str:
+    """Convert a URI to an IRI. All valid UTF-8 characters are unquoted,
+    leaving all reserved and invalid characters quoted. If the URL has
+    a domain, it is decoded from Punycode.
+
+    >>> uri_to_iri("http://xn--n3h.net/p%C3%A5th?q=%C3%A8ry%DF")
+    'http://\\u2603.net/p\\xe5th?q=\\xe8ry%DF'
+
+    :param uri: The URI to convert.
+
+    .. versionchanged:: 3.0
+        Passing a tuple or bytes, and the ``charset`` and ``errors`` parameters,
+        are removed.
+
+    .. versionchanged:: 2.3
+        Which characters remain quoted is specific to each part of the URL.
+
+    .. versionchanged:: 0.15
+        All reserved and invalid characters remain quoted. Previously,
+        only some reserved characters were preserved, and invalid bytes
+        were replaced instead of left quoted.
+
+    .. versionadded:: 0.6
+    """
+    parts = urlsplit(uri)
+    path = _unquote_path(parts.path)
+    query = _unquote_query(parts.query)
+    fragment = _unquote_fragment(parts.fragment)
+
+    if parts.hostname:
+        netloc = _decode_idna(parts.hostname)
+    else:
+        netloc = ""
+
+    if ":" in netloc:
+        netloc = f"[{netloc}]"
+
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+
+    if parts.username:
+        auth = _unquote_user(parts.username)
+
+        if parts.password:
+            password = _unquote_user(parts.password)
+            auth = f"{auth}:{password}"
+
+        netloc = f"{auth}@{netloc}"
+
+    return urlunsplit((parts.scheme, netloc, path, query, fragment))
+
+
+def iri_to_uri(iri: str) -> str:
+    """Convert an IRI to a URI. All non-ASCII and unsafe characters are
+    quoted. If the URL has a domain, it is encoded to Punycode.
+
+    >>> iri_to_uri('http://\\u2603.net/p\\xe5th?q=\\xe8ry%DF')
+    'http://xn--n3h.net/p%C3%A5th?q=%C3%A8ry%DF'
+
+    :param iri: The IRI to convert.
+
+    .. versionchanged:: 3.0
+        Passing a tuple or bytes, the ``charset`` and ``errors`` parameters,
+        and the ``safe_conversion`` parameter, are removed.
+
+    .. versionchanged:: 2.3
+        Which characters remain unquoted is specific to each part of the URL.
+
+    .. versionchanged:: 0.15
+        All reserved characters remain unquoted. Previously, only some reserved
+        characters were left unquoted.
+
+    .. versionchanged:: 0.9.6
+       The ``safe_conversion`` parameter was added.
+
+    .. versionadded:: 0.6
+    """
+    parts = urlsplit(iri)
+    # safe = https://url.spec.whatwg.org/#url-path-segment-string
+    # as well as percent for things that are already quoted
+    path = quote(parts.path, safe="%!$&'()*+,/:;=@")
+    query = quote(parts.query, safe="%!$&'()*+,/:;=?@")
+    fragment = quote(parts.fragment, safe="%!#$&'()*+,/:;=?@")
+
+    if parts.hostname:
+        netloc = parts.hostname.encode("idna").decode("ascii")
+    else:
+        netloc = ""
+
+    if ":" in netloc:
+        netloc = f"[{netloc}]"
+
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+
+    if parts.username:
+        auth = quote(parts.username, safe="%!$&'()*+,;=")
+
+        if parts.password:
+            password = quote(parts.password, safe="%!$&'()*+,;=")
+            auth = f"{auth}:{password}"
+
+        netloc = f"{auth}@{netloc}"
+
+    return urlunsplit((parts.scheme, netloc, path, query, fragment))
+
+
+def _invalid_iri_to_uri(iri: str) -> str:
+    """The URL scheme ``itms-services://`` must contain the ``//`` even though it does
+    not have a host component. There may be other invalid schemes as well. Currently,
+    responses will always call ``iri_to_uri`` on the redirect ``Location`` header, which
+    removes the ``//``. For now, if the IRI only contains ASCII and does not contain
+    spaces, pass it on as-is. In Werkzeug 3.0, this should become a
+    ``response.process_location`` flag.
+
+    :meta private:
+    """
+    try:
+        iri.encode("ascii")
+    except UnicodeError:
+        pass
+    else:
+        if len(iri.split(None, 1)) == 1:
+            return iri
+
+    return iri_to_uri(iri)
+
+
+def _decode_idna(domain: str) -> str:
+    try:
+        data = domain.encode("ascii")
+    except UnicodeEncodeError:
+        # If the domain is not ASCII, it's decoded already.
+        return domain
+
+    try:
+        # Try decoding in one shot.
+        return data.decode("idna")
+    except UnicodeDecodeError:
+        pass
+
+    # Decode each part separately, leaving invalid parts as punycode.
+    parts = []
+
+    for part in data.split(b"."):
+        try:
+            parts.append(part.decode("idna"))
+        except UnicodeDecodeError:
+            parts.append(part.decode("ascii"))
+
+    return ".".join(parts)
+
+
+def _urlencode(query: t.Mapping[str, str] | t.Iterable[tuple[str, str]]) -> str:
+    items = [x for x in iter_multi_items(query) if x[1] is not None]
+    # safe = https://url.spec.whatwg.org/#percent-encoded-bytes
+    return urlencode(items, safe="!$'()*,/:;?@")
+"
+
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/flask_wtf/recaptcha/widgets.py'
+"
+from flask import current_app
+from flask import Markup
+from werkzeug.urls import url_encode
+
+RECAPTCHA_SCRIPT_DEFAULT = "https://www.google.com/recaptcha/api.js"
+RECAPTCHA_DIV_CLASS_DEFAULT = "g-recaptcha"
+RECAPTCHA_TEMPLATE = """
+<script src='%s' async defer></script>
+<div class="%s" %s></div>
+"""
+
+__all__ = ["RecaptchaWidget"]
+
+
+class RecaptchaWidget:
+    def recaptcha_html(self, public_key):
+        html = current_app.config.get("RECAPTCHA_HTML")
+        if html:
+            return Markup(html)
+        params = current_app.config.get("RECAPTCHA_PARAMETERS")
+        script = current_app.config.get("RECAPTCHA_SCRIPT")
+        if not script:
+            script = RECAPTCHA_SCRIPT_DEFAULT
+        if params:
+            script += "?" + url_encode(params)
+        attrs = current_app.config.get("RECAPTCHA_DATA_ATTRS", {})
+        attrs["sitekey"] = public_key
+        snippet = " ".join(f'data-{k}="{attrs[k]}"' for k in attrs)  # noqa: B028
+        div_class = current_app.config.get("RECAPTCHA_DIV_CLASS")
+        if not div_class:
+            div_class = RECAPTCHA_DIV_CLASS_DEFAULT
+        return Markup(RECAPTCHA_TEMPLATE % (script, div_class, snippet))
+
+    def __call__(self, field, error=None, **kwargs):
+        """Returns the recaptcha input HTML."""
+
+        try:
+            public_key = current_app.config["RECAPTCHA_PUBLIC_KEY"]
+        except KeyError:
+            raise RuntimeError("RECAPTCHA_PUBLIC_KEY config not set") from None
+
+        return self.recaptcha_html(public_key)
+"
+
+Error in terminal:
+"
+(.htmxvenv) rob@iMacPro htmx-components-flask-example % python main.py
+Traceback (most recent call last):
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/main.py", line 1, in <module>
+    from app import app
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/app.py", line 12, in <module>
+    from form import KitchenSink
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/form.py", line 1, in <module>
+    from flask_wtf import FlaskForm
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/flask_wtf/__init__.py", line 4, in <module>
+    from .recaptcha import Recaptcha
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/flask_wtf/recaptcha/__init__.py", line 1, in <module>
+    from .fields import RecaptchaField
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/flask_wtf/recaptcha/fields.py", line 3, in <module>
+    from . import widgets
+  File "/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/flask_wtf/recaptcha/widgets.py", line 3, in <module>
+    from werkzeug.urls import url_encode
+ImportError: cannot import name 'url_encode' from 'werkzeug.urls' (/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/.htmxvenv/lib/python3.9/site-packages/werkzeug/urls.py)
+(.htmxvenv) rob@iMacPro htmx-components-flask-example % 
+"
+
+
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/app.py'
+"
+from __future__ import annotations
+
+from functools import partial
+
+from flask import Flask, render_template, request
+from flask_sqlalchemy import SQLAlchemy
+from htmx_components_flask import htmx_components_flask
+from htmx_components_python import GridConfig, TreeConfig
+from jinja2 import StrictUndefined
+from sqlalchemy import Table, asc, desc, func, select, text
+
+from form import KitchenSink
+
+app = Flask(__name__)
+app.register_blueprint(htmx_components_flask)
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///northwind.db"
+app.config["SECRET_KEY"] = "s3cr3t"
+
+db = SQLAlchemy()
+db.init_app(app)
+
+with app.app_context():
+    db.reflect()
+
+customers_table = db.metadata.tables["Customers_FTS"]
+
+
+app.jinja_env.trim_blocks = True
+app.jinja_env.lstrip_blocks = True
+app.jinja_env.undefined = StrictUndefined
+
+
+@app.get("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/gridview", methods=["GET", "POST"])
+def viewgrid():
+    grid1 = GridConfig(
+        columns=[
+            "CustomerID",
+            "CompanyName",
+            "ContactName",
+            "ContactTitle",
+            "Region",
+        ]
+    )
+
+    grid1.get_records = partial(get_records, customers_table)
+    return render_template("gridview.html", grid_config=grid1)
+
+
+@app.route("/form", methods=["GET", "POST"])
+def form():
+    form = KitchenSink(request.form)
+    form.validate_on_submit()
+    return render_template("form.html", form=form)
+
+
+@app.route("/treeview", methods=["GET", "POST"])
+def tree():
+    tree = TreeConfig(
+        data=get_georegions_eager,
+    )
+    return render_template("treeview.html", tree=tree)
+
+
+def get_georegions_eager(q: str | None = None):
+    query = """
+with recursive exp1 as (
+    select
+        id,
+        name,
+        parent_id
+    from georegions
+    where
+        name like :q
+
+    union
+
+    select
+        parent.id,
+        parent.name,
+        parent.parent_id
+    from georegions as parent
+        inner join exp1 as child on child.parent_id = parent.id
+    order by
+        name asc
+)
+select * from exp1
+"""
+
+    cursor_result = db.session.execute(text(query), {"q": f"%{q}%"})
+
+    result = []
+    for row in cursor_result:
+        result.append(row._mapping)
+    return result
+
+
+def get_records(
+    table: Table,
+    page: int = 1,
+    page_size: int = 20,
+    sorts: list[tuple[str, str]] | None = None,
+    q: str = "",
+):
+    if not sorts:
+        sorts = []
+
+    query = select(table)
+    count_query = select(func.count("*")).select_from(table)
+    where_clause = text(f"{table.name} match :q")
+
+    if q:
+        query = query.filter(where_clause)
+        count_query = count_query.filter(where_clause)
+
+    for sort in sorts:
+        attr = table.c[sort[0]]
+        query = query.order_by(desc(attr) if sort[1] == "desc" else asc(attr))
+
+    query = query.limit(page_size).offset(page_size * (page - 1))
+
+    cursor_result = db.session.execute(query, {"q": f"{q}"})
+
+    result = []
+    for row in cursor_result:
+        result.append(row._mapping)
+
+    total = db.session.scalar(count_query, {"q": f"{q}"})
+    return result, (total // page_size) + 1
+"
+
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/main.py'
+"
+from app import app
+
+if __name__ == "__main__":
+    app.run(debug=True)
+"
+
+'/Users/rob/Programing-Projects/htmx components flask example/htmx-components-flask-example/form.py'
+"
+from flask_wtf import FlaskForm
+from wtforms import (
+    BooleanField,
+    DateField,
+    DateTimeLocalField,
+    DecimalField,
+    DecimalRangeField,
+    EmailField,
+    FileField,
+    FloatField,
+    HiddenField,
+    IntegerField,
+    IntegerRangeField,
+    MonthField,
+    MultipleFileField,
+    PasswordField,
+    RadioField,
+    SearchField,
+    SelectField,
+    SelectMultipleField,
+    StringField,
+    SubmitField,
+    TelField,
+    TextAreaField,
+    TimeField,
+    URLField,
+    validators,
+)
+from wtforms.widgets import ColorInput, PasswordInput, WeekInput
+
+
+class ColorField(StringField):
+    widget = ColorInput()
+
+
+req = validators.InputRequired()
+desc = "A description"
+
+
+class KitchenSink(FlaskForm):
+    string = StringField("String", description=desc, validators=[req])
+    search = SearchField("Search", description=desc, validators=[req])
+    password = PasswordField(
+        "Password",
+        widget=PasswordInput(hide_value=False),
+        description=desc,
+        validators=[req],
+    )
+    email = EmailField("Email", description=desc, validators=[req, validators.Email()])
+    tel = TelField("Tel", description=desc, validators=[req])
+    url = URLField("URL", description=desc, validators=[req, validators.URL()])
+    textarea = TextAreaField("Text Area", description=desc, validators=[req])
+
+    boolean = BooleanField("Checkbox", description=desc, validators=[req])
+
+    choices = [("a", "A"), ("b", "B"), ("c", "C")]
+    radio = RadioField(
+        "Radio",
+        choices=choices,
+        description=desc,
+        validators=[validators.DataRequired()],
+    )
+    select = SelectField(
+        label="Select",
+        description=desc,
+        choices=[("", "-- Select --")] + choices,
+        validators=[req],
+    )
+    multiselect = SelectMultipleField(
+        label="Select Multiple", description=desc, choices=choices, validators=[req]
+    )
+
+    date = DateField("Date", description=desc, validators=[req])
+
+    datetimelocal = DateTimeLocalField(
+        "DateTime Local",
+        description=desc,
+        format="%Y-%m-%dT%H:%M",
+        validators=[req],
+    )
+    week = DateField(
+        "Week",
+        widget=WeekInput(),
+        description=desc,
+        validators=[req],
+        format="%Y-W%U",
+    )
+    month = MonthField("Month", description=desc, validators=[req])
+    time = TimeField("Time", description=desc, validators=[req])
+
+    integer = IntegerField("Integer", description=desc, validators=[req])
+    decimal = DecimalField("Decimal", description=desc, validators=[req])
+    float = FloatField("Float", description=desc, validators=[req])
+    integerrange = IntegerRangeField(
+        "Integer Range",
+        description=desc,
+        render_kw={"min": 0, "max": 100},
+        validators=[validators.NumberRange(min=51)],
+    )
+    decimalrange = DecimalRangeField(
+        "Decimal Range",
+        description=desc,
+        render_kw={"min": 0, "max": 100},
+        validators=[validators.NumberRange(min=51)],
+    )
+
+    file = FileField(
+        "File",
+        # validators=[FileRequired()],
+        description=desc,
+    )
+    multifile = MultipleFileField(
+        "Multi-File",
+        # validators=[FileRequired()],
+        description=desc,
+    )
+    color = ColorField("Color", description=desc)
+
+    hidden = HiddenField("", default="I'm hidden")
+    submit = SubmitField("Submit")
+"
