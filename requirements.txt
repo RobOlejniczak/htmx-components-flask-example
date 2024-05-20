@@ -6,8 +6,6 @@ Flask==2.3.2
 Flask-SQLAlchemy==3.0.5
 Flask-WTF==1.2.1
 greenlet==3.0.3
-htmx-components-flask==0.0.2
-htmx-components-flask-example @ file:///Users/rob/Programing-Projects/htmx%20components%20flask%20example/htmx-components-flask-example
 htmx-components-python==0.0.2
 idna==3.6
 importlib-metadata==7.0.1
@@ -20,3 +18,4 @@ typing_extensions==4.10.0
 Werkzeug==3.0.1
 WTForms==3.1.2
 zipp==3.17.0
+-e git+https://github.com/RobOlejniczak/htmx_components_flask.git#egg=htmx_components_flask
