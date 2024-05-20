@@ -18,4 +18,5 @@ typing_extensions==4.10.0
 Werkzeug==3.0.1
 WTForms==3.1.2
 zipp==3.17.0
--e git+https://github.com/RobOlejniczak/htmx_components_flask.git#egg=htmx_components_flask
+-e git+https://github.com/RobOlejniczak/htmx-components-flask.git#egg=htmx_components_flask
+

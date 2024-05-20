@@ -117,3 +117,9 @@ docker/requirements-local.txt
 cache/
 .htmxvenv/
 .htmxvenv/*
+
+HFenv
+HFenv/
+HFenv/*
+
+*env
